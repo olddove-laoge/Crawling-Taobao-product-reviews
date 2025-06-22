@@ -6,8 +6,9 @@ from selenium.webdriver.support import expected_conditions as EC
 import pickle
 import os
 import time
+import random
 
-class TaobaoScraper:
+class TaobaoScraperNew:
     def __init__(self, 
                  driver_path: str,
                  user_data_dir: str = r"C:\taobao_bot_profile",
@@ -88,8 +89,6 @@ class TaobaoScraper:
                     cookies = pickle.load(f)
                     self.driver.delete_all_cookies()
                     for cookie in cookies:
-                        if 'expiry' in cookie:
-                            del cookie['expiry']
                         self.driver.add_cookie(cookie)
                 self.driver.refresh()
                 print("🔑 历史Cookie加载完成")
@@ -109,20 +108,20 @@ class TaobaoScraper:
     def smart_scroll(self) -> bool:
         """智能滚动加载"""
         scroll_container = self.driver.execute_script("""
-            return document.querySelector("body > div.Oo3vRXl7BS--leftDrawer--_7efaeec > div.Oo3vRXl7BS--content--e320bf32 > div > div.Oo3vRXl7BS--comments--_00182ac.beautify-scroll-bar") 
+            return document.querySelector("body > div[class*='7efaeec'] > div[class*='e320bf32'] > div > div[class*='00182ac']") 
             || document.documentElement
         """)
         
         try:
-            pre_count = len(self.driver.find_elements(By.CLASS_NAME, 'Oo3vRXl7BS--Comment--_0b4e753'))
+            pre_count = len(self.driver.find_elements(By.XPATH, "//*[contains(@class, '0b4e753')]"))
             
             self.driver.execute_script("""
                 arguments[0].scrollTop += arguments[0].clientHeight * 8.5;
             """, scroll_container)
             
-            time.sleep(0.2)
+            time.sleep(random.uniform(0.1, 0.3))  
             
-            post_count = len(self.driver.find_elements(By.CLASS_NAME, 'Oo3vRXl7BS--Comment--_0b4e753'))
+            post_count = len(self.driver.find_elements(By.XPATH, "//*[contains(@class, '0b4e753')]"))
             print(f"🔄 滚动检测: {pre_count} → {post_count} 条评论")
             return post_count > pre_count
         except Exception as e:
@@ -141,8 +140,8 @@ class TaobaoScraper:
         time.sleep(3)
         
         try:
-            review_btn = WebDriverWait(self.driver, 20).until(
-                EC.element_to_be_clickable((By.CLASS_NAME, 'Oo3vRXl7BS--ShowButton--_15e2446'))
+            review_btn = WebDriverWait(self.driver, 40).until(
+                EC.element_to_be_clickable((By.XPATH, "//*[contains(@class, '15e2446')]"))
             )
             self.driver.execute_script("arguments[0].click();", review_btn)
             time.sleep(3)
@@ -151,12 +150,12 @@ class TaobaoScraper:
         
         processed = set()
         retry_count = 0
-        max_retries = 3
+        max_retries = 5
         collected_enough = False  # 收集完成状态标识
 
         with open(output_file, 'w', encoding='utf-8') as f:
             while retry_count < max_retries and not collected_enough:
-                current_comments = self.driver.find_elements(By.CLASS_NAME, 'Oo3vRXl7BS--Comment--_0b4e753')
+                current_comments = self.driver.find_elements(By.XPATH, "//*[contains(@class, '0b4e753')]")
                 new_added = 0
                 
                 # 处理当前页评论
@@ -164,24 +163,18 @@ class TaobaoScraper:
                     comment_id = comment.get_attribute('data-before-current-y')
                     if comment_id not in processed:
                         try:
-                            content = comment.find_element(
-                                By.CLASS_NAME, 'Oo3vRXl7BS--content--_8e6708c'
-                            ).text.strip()
-                            f.write(f"{content}\n")
+                            content = comment.find_element(By.XPATH, ".//*[contains(@class, 'content')]").text
+                            f.write(content + '\n')
                             processed.add(comment_id)
                             new_added += 1
                             
-                            # 实时检查收集数量
                             if len(processed) >= max_comments:
                                 collected_enough = True
-                                break  # 跳出评论处理循环
+                                break
                         except Exception as e:
-                            print(f"⚠️ 评论解析异常: {str(e)}")
+                            print(f"⚠️ 评论处理异常: {str(e)}")
                             continue
-                    # 快速退出检查
-                    if collected_enough:
-                        break
-
+                
                 # 达到数量后立即终止
                 if collected_enough:
                     print(f"🎉 成功收集 {max_comments} 条评论，任务完成")
@@ -189,18 +182,15 @@ class TaobaoScraper:
                 
                 # 滚动控制逻辑
                 if new_added < 5:
-                    if self.smart_scroll():
-                        retry_count = max(0, retry_count - 2)
-                
-                # 重试机制
-                if new_added == 0:
                     retry_count += 1
-                    print(f"🔄 重试计数器: {retry_count}/{max_retries}")
-                    if self.smart_scroll():
-                        retry_count = max(0, retry_count - 1)
+                    print(f"🔄 新增评论不足({new_added}条)，准备第{retry_count}次重试...")
                 else:
                     retry_count = 0
-                    print(f"✅ 新增 {new_added} 条，总计 {len(processed)} 条")
+                
+                # 执行滚动
+                if not self.smart_scroll():
+                    retry_count += 1
+                    print(f"🔄 滚动未加载新内容，准备第{retry_count}次重试...")
                 
                 # 动态等待策略
                 delay = 1.2 if new_added > 0 else 2.0
@@ -208,7 +198,8 @@ class TaobaoScraper:
                 
                 # 最终终止检查
                 if retry_count >= max_retries:
-                    print(f"⏹️ 达到最大重试次数 {max_retries}，停止采集")
+                    print(f"🛑 已达到最大重试次数{max_retries}，终止收集")
+                    break
 
     def close(self):
         """关闭浏览器实例"""
@@ -221,8 +212,8 @@ class TaobaoScraper:
 
 # 保留独立运行功能
 if __name__ == "__main__":
-    with TaobaoScraper(
-        driver_path=r"E:\edgedriver_win64\msedgedriver.exe"
+    with TaobaoScraperNew(
+        driver_path=r"E:\edgedriver_win64 (1)\msedgedriver.exe"
     ) as scraper:
         scraper.ensure_login()
         scraper.scrape_reviews(
