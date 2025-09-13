@@ -40,3 +40,18 @@
 1. 安装依赖库：
    ```bash
    pip install selenium pickle
+   ```
+2.下载浏览器对应版本的driver(本项目用的是edgedriver)
+  下载电脑浏览器对应版本的driver后，将
+  ```python
+    def __init__(self, 
+                 driver_path: str,
+                 user_data_dir: str = r"C:\taobao_bot_profile",
+                 cookie_file: str = "taobao_cookies.pkl"):
+        self.driver = None
+        self.driver_path = driver_path
+        self.user_data_dir = user_data_dir
+        self.cookie_file = cookie_file
+
+  ```
+  中的driver_path修改为自己的driver路径
